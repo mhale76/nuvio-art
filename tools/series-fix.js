@@ -33,6 +33,15 @@ const MAP = Object.assign({
     // Episode list clean-up: keep only these specials (Season 0), with these names.
     keepSpecials: { 1: '2008 Christmas Special', 15: '2019 Christmas Special', 19: 'The Finale (2024)' },
   },
+  // Specials lists cut down to the ones AIOStreams has streams for (checked 12 Nov 2026).
+  // A list keeps the original names; an empty list hides Season 0 altogether.
+  tt0105929: { episodes: { '0:1': ['3:7', '0:1'], '0:2': ['3:8', '0:2'] }, keepSpecials: [1, 2, 3, 5, 6, 7, 9, 10, 12, 13, 14, 15, 16, 19, 33, 34, 35, 41, 49, 50, 53] }, // Absolutely Fabulous: The Last Shout (S0E1-2) is S3E7-8 in releases; 25, 28 dropped (same as S6)
+  tt0084988: { keepSpecials: [1, 2, 3, 11] }, // Blackadder
+  tt0062552: { keepSpecials: [] }, // Dad's Army
+  tt1220617: { keepSpecials: [1, 38] }, // The Inbetweeners
+  tt0081912: { keepSpecials: [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 29, 30, 31, 32, 34] }, // Only Fools and Horses
+  tt0387764: { keepSpecials: [] }, // Peep Show
+  tt0436992: { keepSpecials: [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 13, 14, 15, 16, 17, 18, 23, 24, 25, 26, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 43, 44, 45, 46, 47, 48, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 103, 125, 126, 127, 137, 138, 139, 142, 146, 147, 148, 149, 151, 154, 156, 157, 158, 159, 161, 162, 163, 164, 168, 171, 208, 209, 210] }, // Doctor Who (2005)
 }, JSON.parse(process.env.EXTRA_MAP || '{}'));
 
 const AIO = (process.env.AIOSTREAMS_URL || '').replace(/\/manifest\.json.*$/, '').replace(/\/+$/, '');
@@ -42,14 +51,15 @@ const XP = (process.env.XPERIENCE_URL || '').replace(/\/manifest\.json.*$/, '').
 const PORT = Number(process.env.PORT || 7020);
 
 const META_SHOWS = Object.keys(MAP).filter((k) => MAP[k].keepSpecials);
-const resources = [{ name: 'stream', types: ['series'], idPrefixes: Object.keys(MAP) }];
+const STREAM_SHOWS = Object.keys(MAP).filter((k) => MAP[k].episodes || MAP[k].offset !== undefined || MAP[k].links);
+const resources = [{ name: 'stream', types: ['series'], idPrefixes: STREAM_SHOWS }];
 if (XP && META_SHOWS.length) resources.push({ name: 'meta', types: ['series'], idPrefixes: META_SHOWS });
 
 const manifest = {
   id: 'uk.markhale.seriesfix',
-  version: '1.3.0',
+  version: '1.4.0',
   name: 'Series Fix',
-  description: 'Fixes series and special-episode numbering (e.g. Bake Off, Gavin & Stacey specials), tidies specials lists, and fetches streams from AIOStreams.',
+  description: 'Fixes series and special-episode numbering (Bake Off, Gavin & Stacey, Ab Fab specials), tidies specials lists, and fetches streams from AIOStreams.',
   types: ['series'],
   catalogs: [],
   resources,
@@ -66,9 +76,10 @@ async function metaFor(id) {
     if (!r.ok) return { meta: null };
     const data = await r.json();
     const m = data.meta || {};
+    const named = !Array.isArray(keep);
     m.videos = (m.videos || [])
-      .filter((v) => v.season !== 0 || keep[v.episode])
-      .map((v) => (v.season === 0 ? { ...v, title: keep[v.episode], name: keep[v.episode] } : v));
+      .filter((v) => v.season !== 0 || (named ? keep[v.episode] : keep.includes(v.episode)))
+      .map((v) => (v.season === 0 && named ? { ...v, title: keep[v.episode], name: keep[v.episode] } : v));
     return { meta: m };
   } catch (err) {
     console.error('meta error', imdb, err.message);
