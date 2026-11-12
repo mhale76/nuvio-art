@@ -30,6 +30,15 @@ const MAP = Object.assign({
       '0:15': ['3:7', '0:2', '0:15', '4:1'],
       '0:19': ['3:8', '0:3', '0:19', '4:1', '4:2'],
     },
+    // TEST (12 Nov 2026): "open in iPlayer" links for series 1 episode 1, several link styles.
+    links: {
+      '1:1': [
+        ['iPlayer link A (web address)', 'https://www.bbc.co.uk/iplayer/episode/b007lc51'],
+        ['iPlayer link B (bbc://)', 'bbc://iplayer/episode/b007lc51'],
+        ['iPlayer link C (bbciplayer://)', 'bbciplayer://episode/b007lc51'],
+        ['iPlayer link D (app home)', 'bbc://iplayer/browse'],
+      ],
+    },
   },
 }, JSON.parse(process.env.EXTRA_MAP || '{}'));
 
@@ -38,7 +47,7 @@ const PORT = Number(process.env.PORT || 7020);
 
 const manifest = {
   id: 'uk.markhale.seriesfix',
-  version: '1.1.0',
+  version: '1.2.0-test',
   name: 'Series Fix',
   description: 'Fixes series and special-episode numbering (e.g. Bake Off, Gavin & Stacey specials) and fetches streams from AIOStreams.',
   types: ['series'],
@@ -84,15 +93,24 @@ function targetsFor(imdb, s, e) {
   return [];
 }
 
+// "Open in the broadcaster's app" entries: external links, not video files.
+function linksFor(imdb, s, e) {
+  const m = MAP[imdb];
+  const list = m && m.links && m.links[`${Number(s)}:${Number(e)}`];
+  if (!list) return [];
+  return list.map(([title, url]) => ({ name: '▶ BBC iPlayer', title, externalUrl: url }));
+}
+
 async function streamsFor(id) {
   const [imdb, s, e] = decodeURIComponent(id).split(':');
+  const links = linksFor(imdb, s, e);
   const targets = targetsFor(imdb, s, e);
-  if (!targets.length || !AIO) return { streams: [] };
+  if (!targets.length || !AIO) return { streams: links };
   const results = await Promise.all(targets.map(upstream));
   const i = results.findIndex((r) => r.length);
-  if (i < 0) return { streams: [] };
+  if (i < 0) return { streams: links };
   console.log(`${id} -> ${targets[i]} (${results[i].length} streams)`);
-  return { streams: results[i] };
+  return { streams: links.concat(results[i]) };
 }
 
 // /test/<imdb>:<s>:<e> shows every candidate and its stream count (for checking a mapping).
