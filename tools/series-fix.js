@@ -30,31 +30,51 @@ const MAP = Object.assign({
       '0:15': ['3:7', '0:2', '0:15', '4:1'],
       '0:19': ['3:8', '0:3', '0:19', '4:1', '4:2'],
     },
-    // TEST (12 Nov 2026): "open in iPlayer" links for series 1 episode 1, several link styles.
-    links: {
-      '1:1': [
-        ['iPlayer link A (web address)', 'https://www.bbc.co.uk/iplayer/episode/b007lc51'],
-        ['iPlayer link B (bbc://)', 'bbc://iplayer/episode/b007lc51'],
-        ['iPlayer link C (bbciplayer://)', 'bbciplayer://episode/b007lc51'],
-        ['iPlayer link D (app home)', 'bbc://iplayer/browse'],
-      ],
-    },
+    // Episode list clean-up: keep only these specials (Season 0), with these names.
+    keepSpecials: { 1: '2008 Christmas Special', 15: '2019 Christmas Special', 19: 'The Finale (2024)' },
   },
 }, JSON.parse(process.env.EXTRA_MAP || '{}'));
 
 const AIO = (process.env.AIOSTREAMS_URL || '').replace(/\/manifest\.json.*$/, '').replace(/\/+$/, '');
+// Optional: your Xperience install link, so Series Fix can serve a tidied episode list
+// (shows with keepSpecials). Without it, the episode list is left to Xperience.
+const XP = (process.env.XPERIENCE_URL || '').replace(/\/manifest\.json.*$/, '').replace(/\/+$/, '');
 const PORT = Number(process.env.PORT || 7020);
+
+const META_SHOWS = Object.keys(MAP).filter((k) => MAP[k].keepSpecials);
+const resources = [{ name: 'stream', types: ['series'], idPrefixes: Object.keys(MAP) }];
+if (XP && META_SHOWS.length) resources.push({ name: 'meta', types: ['series'], idPrefixes: META_SHOWS });
 
 const manifest = {
   id: 'uk.markhale.seriesfix',
-  version: '1.2.0-test',
+  version: '1.3.0',
   name: 'Series Fix',
-  description: 'Fixes series and special-episode numbering (e.g. Bake Off, Gavin & Stacey specials) and fetches streams from AIOStreams.',
+  description: 'Fixes series and special-episode numbering (e.g. Bake Off, Gavin & Stacey specials), tidies specials lists, and fetches streams from AIOStreams.',
   types: ['series'],
   catalogs: [],
-  resources: [{ name: 'stream', types: ['series'], idPrefixes: Object.keys(MAP) }],
+  resources,
   idPrefixes: Object.keys(MAP),
 };
+
+// Episode list from Xperience, with Season 0 cut down to the specials worth keeping.
+async function metaFor(id) {
+  const imdb = decodeURIComponent(id).split(':')[0];
+  const keep = MAP[imdb] && MAP[imdb].keepSpecials;
+  if (!keep || !XP) return { meta: null };
+  try {
+    const r = await fetch(`${XP}/meta/series/${imdb}.json`);
+    if (!r.ok) return { meta: null };
+    const data = await r.json();
+    const m = data.meta || {};
+    m.videos = (m.videos || [])
+      .filter((v) => v.season !== 0 || keep[v.episode])
+      .map((v) => (v.season === 0 ? { ...v, title: keep[v.episode], name: keep[v.episode] } : v));
+    return { meta: m };
+  } catch (err) {
+    console.error('meta error', imdb, err.message);
+    return { meta: null };
+  }
+}
 
 function send(res, code, obj) {
   res.writeHead(code, {
@@ -127,8 +147,10 @@ http.createServer(async (req, res) => {
   if (path === '/' || path === '/manifest.json') return send(res, 200, manifest);
   const m = path.match(/^\/stream\/series\/(.+)\.json$/);
   if (m) return send(res, 200, await streamsFor(m[1]));
+  const mm = path.match(/^\/meta\/series\/(.+)\.json$/);
+  if (mm) return send(res, 200, await metaFor(mm[1]));
   const t = path.match(/^\/test\/(.+)$/);
   if (t) return send(res, 200, await testFor(t[1]));
-  if (path === '/health') return send(res, 200, { ok: true, version: manifest.version, upstream: Boolean(AIO), shows: Object.keys(MAP) });
+  if (path === '/health') return send(res, 200, { ok: true, version: manifest.version, upstream: Boolean(AIO), meta: Boolean(XP), shows: Object.keys(MAP) });
   send(res, 404, { error: 'not found' });
 }).listen(PORT, () => console.log(`Series Fix ${manifest.version} listening on ${PORT}; shows: ${Object.keys(MAP).join(', ')}; upstream set: ${Boolean(AIO)}`));
